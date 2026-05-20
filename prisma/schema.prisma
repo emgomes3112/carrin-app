@@ -1,0 +1,218 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserType {
+  CLIENT
+  PARTNER
+  ADMIN
+}
+
+enum DocumentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum OrderStatus {
+  CREATED
+  PAID_WAITING_PARTNER
+  ACCEPTED
+  PICKING
+  WAITING_HANDOFF
+  HANDED_OVER
+  IN_CHECKOUT
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderItemStatus {
+  PENDING
+  FOUND
+  OUT_OF_STOCK
+  SUBSTITUTED
+  REMOVED
+}
+
+enum SubstitutionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+  FAILED
+}
+
+model User {
+  id             String          @id @default(uuid()) @db.Uuid
+  name           String          @db.VarChar(150)
+  email          String          @unique @db.VarChar(150)
+  passwordHash   String          @map("password_hash") @db.VarChar(255)
+  phone          String          @unique @db.VarChar(20)
+  documentCpf    String          @unique @map("document_cpf") @db.VarChar(11)
+  userType       UserType        @map("user_type")
+  avatarUrl      String?         @map("avatar_url") @db.VarChar(255)
+  averageRating  Decimal         @default(5.00) @map("average_rating") @db.Decimal(3, 2)
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  partnerProfile PartnerProfile?
+  clientOrders   Order[]         @relation("ClientOrders")
+  partnerOrders  Order[]         @relation("PartnerOrders")
+  chatMessages   ChatMessage[]
+  reviewsSent    Review[]        @relation("Reviewer")
+
+  @@map("users")
+}
+
+model PartnerProfile {
+  id               String         @id @db.Uuid
+  documentStatus   DocumentStatus @default(PENDING) @map("document_status")
+  bankAgency       String         @map("bank_agency") @db.VarChar(10)
+  bankAccount      String         @map("bank_account") @db.VarChar(20)
+  pixKey           String         @map("pix_key") @db.VarChar(100)
+  isAvailable      Boolean        @default(false) @map("is_available")
+  currentLatitude  Decimal?       @map("current_latitude") @db.Decimal(9, 6)
+  currentLongitude Decimal?       @map("current_longitude") @db.Decimal(9, 6)
+
+  user             User           @relation(fields: [id], references: [id], onDelete: Cascade)
+
+  @@map("partner_profiles")
+}
+
+model Supermarket {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(150)
+  address   String   @db.Text
+  latitude  Decimal  @db.Decimal(9, 6)
+  longitude Decimal  @db.Decimal(9, 6)
+  isActive  Boolean  @default(true) @map("is_active")
+
+  orders    Order[]
+
+  @@map("supermarkets")
+}
+
+model CatalogProduct {
+  id             String      @id @default(uuid()) @db.Uuid
+  name           String      @db.VarChar(255)
+  barcode        String?     @unique @db.VarChar(50)
+  category       String      @db.VarChar(100)
+  suggestedPrice Decimal?    @map("suggested_price") @db.Decimal(10, 2)
+  imageUrl       String?     @map("image_url") @db.VarChar(255)
+
+  orderItems     OrderItem[]
+
+  @@map("catalog_products")
+}
+
+model Order {
+  id            String       @id @default(uuid()) @db.Uuid
+  clientId      String       @map("client_id") @db.Uuid
+  partnerId     String?      @map("partner_id") @db.Uuid
+  supermarketId String       @map("supermarket_id") @db.Uuid
+  status        OrderStatus
+  baseFee       Decimal      @map("base_fee") @db.Decimal(10, 2)
+  servicesFee   Decimal      @map("services_fee") @db.Decimal(10, 2)
+  totalFee      Decimal      @map("total_fee") @db.Decimal(10, 2)
+  pincode       String       @db.VarChar(4)
+  handoffAt     DateTime?    @map("handoff_at")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  client        User         @relation("ClientOrders", fields: [clientId], references: [id])
+  partner       User?        @relation("PartnerOrders", fields: [partnerId], references: [id])
+  supermarket   Supermarket  @relation(fields: [supermarketId], references: [id])
+  items         OrderItem[]
+  chatMessages  ChatMessage[]
+  payment       Payment?
+  reviews       Review[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id               String             @id @default(uuid()) @db.Uuid
+  orderId          String             @map("order_id") @db.Uuid
+  catalogProductId String?            @map("catalog_product_id") @db.Uuid
+  customName       String?            @map("custom_name") @db.VarChar(255)
+  quantity         Int                @default(1)
+  unitPrice        Decimal?           @map("unit_price") @db.Decimal(10, 2)
+  barcodeMatched   Boolean            @map("barcode_matched")
+  photoUrl         String?            @map("photo_url") @db.VarChar(255)
+  status           OrderItemStatus    @default(PENDING)
+  notes            String?            @db.Text
+
+  order            Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  catalogProduct   CatalogProduct?    @relation(fields: [catalogProductId], references: [id])
+  substitutions    OrderSubstitution[]
+
+  @@map("order_items")
+}
+
+model OrderSubstitution {
+  id                String             @id @default(uuid()) @db.Uuid
+  orderItemId       String             @map("order_item_id") @db.Uuid
+  proposedName      String             @map("proposed_name") @db.VarChar(255)
+  proposedPrice     Decimal            @map("proposed_price") @db.Decimal(10, 2)
+  proposedPhotoUrl  String             @map("proposed_photo_url") @db.VarChar(255)
+  status            SubstitutionStatus @default(PENDING)
+  createdAt         DateTime           @default(now()) @map("created_at")
+
+  orderItem         OrderItem          @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  @@map("order_substitutions")
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  orderId   String   @map("order_id") @db.Uuid
+  senderId  String   @map("sender_id") @db.Uuid
+  message   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sender    User     @relation(fields: [senderId], references: [id])
+
+  @@map("chat_messages")
+}
+
+model Payment {
+  id            String        @id @default(uuid()) @db.Uuid
+  orderId       String        @unique @map("order_id") @db.Uuid
+  status        PaymentStatus @default(PENDING)
+  paymentMethod String        @default("PIX") @map("payment_method") @db.VarChar(50)
+  transactionId String?       @unique @map("transaction_id") @db.VarChar(255)
+  amount        Decimal       @db.Decimal(10, 2)
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+}
+
+model Review {
+  id         String   @id @default(uuid()) @db.Uuid
+  orderId    String   @map("order_id") @db.Uuid
+  reviewerId String   @map("reviewer_id") @db.Uuid
+  rating     Int
+  comment    String?  @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  reviewer   User     @relation("Reviewer", fields: [reviewerId], references: [id])
+
+  @@map("reviews")
+}
