@@ -9,8 +9,10 @@ app.register(fastifyJwt, {
 });
 
 import { authRoutes } from './http/routes/auth.routes.js';
+import { ordersRoutes } from './http/routes/orders.routes.js';
 
 app.register(authRoutes, { prefix: '/auth' });
+app.register(ordersRoutes, { prefix: '/orders' });
 
 app.setErrorHandler((error, _, reply) => {
   if (error instanceof Error && error.name === 'ZodError') {
