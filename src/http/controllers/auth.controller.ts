@@ -1,20 +1,17 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { prisma } from '../../lib/prisma.js';
+import bcrypt from 'bcryptjs';
 import { maskUserData } from '../../utils/mask-user-data.js';
-import { AuthService } from '../../services/auth.service.js';
-import { UserAlreadyExistsError } from '../../services/errors/user-already-exists-error.js';
-import { InvalidCredentialsError } from '../../services/errors/credentials-invalid-error.js';
-import { env } from '../../env.js';
+import { Prisma } from '@prisma/client';
 
 export async function register(request: FastifyRequest, reply: FastifyReply) {
   const registerBodySchema = z.object({
-    name: z.string().min(1),
+    name: z.string(),
     email: z.string().email(),
-    password: z.string().min(8).regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
-      .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
-      .regex(/[0-9]/, 'Password must contain at least one number'),
-    phone: z.string().min(10).max(15), // Basic validation, adjust regex for specific country if needed
-    documentCpf: z.string().length(11).regex(/^\d+$/, 'CPF must contain only digits'),
+    password: z.string().min(6),
+    phone: z.string(),
+    documentCpf: z.string(),
     userType: z.enum(['CLIENT', 'PARTNER']),
     avatarUrl: z.string().url().optional(),
 
@@ -32,71 +29,110 @@ export async function register(request: FastifyRequest, reply: FastifyReply) {
     path: ["userType"],
   });
 
-  const parsed = registerBodySchema.safeParse(request.body);
+  const data = registerBodySchema.parse(request.body);
 
-  if (!parsed.success) {
-    return reply.status(400).send({ message: 'Validation error.', issues: JSON.parse(parsed.error.message) });
+  const userWithSameEmail = await prisma.user.findUnique({
+    where: { email: data.email },
+  });
+
+  if (userWithSameEmail) {
+    return reply.status(409).send({ message: 'E-mail already exists.' });
   }
 
-  const data = parsed.data;
+  const userWithSamePhone = await prisma.user.findUnique({
+    where: { phone: data.phone },
+  });
+
+  if (userWithSamePhone) {
+    return reply.status(409).send({ message: 'Phone already exists.' });
+  }
+
+  const userWithSameCpf = await prisma.user.findUnique({
+    where: { documentCpf: data.documentCpf },
+  });
+
+  if (userWithSameCpf) {
+    return reply.status(409).send({ message: 'CPF already exists.' });
+  }
+
+  const passwordHash = await bcrypt.hash(data.password, 6);
 
   try {
-    const authService = new AuthService();
-    const user = await authService.register(data);
+    const user = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const createdUser = await tx.user.create({
+        data: {
+          name: data.name,
+          email: data.email,
+          passwordHash,
+          phone: data.phone,
+          documentCpf: data.documentCpf,
+          userType: data.userType,
+          avatarUrl: data.avatarUrl ?? null,
+        },
+      });
+
+      if (data.userType === 'PARTNER') {
+        await tx.partnerProfile.create({
+          data: {
+            id: createdUser.id,
+            bankAgency: data.bankAgency!,
+            bankAccount: data.bankAccount!,
+            pixKey: data.pixKey!,
+          },
+        });
+      }
+
+      return createdUser;
+    });
 
     const maskedUser = maskUserData(user);
 
     return reply.status(201).send({ user: maskedUser });
   } catch (err) {
-    if (err instanceof UserAlreadyExistsError) {
-      return reply.status(409).send({ message: err.message });
-    }
-    console.error(err);
-    return reply.status(500).send({ message: 'Internal server error.' });
+      console.error(err);
+      return reply.status(500).send({ message: 'Internal server error.' });
   }
 }
 
 export async function authenticate(request: FastifyRequest, reply: FastifyReply) {
   const authenticateBodySchema = z.object({
     email: z.string().email(),
-    password: z.string().min(1),
+    password: z.string().min(6),
   });
 
-  const parsed = authenticateBodySchema.safeParse(request.body);
+  const { email, password } = authenticateBodySchema.parse(request.body);
 
-  if (!parsed.success) {
-    return reply.status(400).send({ message: 'Validation error.', issues: JSON.parse(parsed.error.message) });
+  const user = await prisma.user.findUnique({
+    where: {
+      email,
+    },
+  });
+
+  if (!user) {
+    return reply.status(400).send({ message: 'Invalid credentials.' });
   }
 
-  const { email, password } = parsed.data;
+  const doesPasswordMatch = await bcrypt.compare(password, user.passwordHash);
 
-  try {
-    const authService = new AuthService();
-    const user = await authService.authenticate({ email, password });
-
-    const token = await reply.jwtSign(
-      {
-        userType: user.userType,
-      },
-      {
-        sign: {
-          sub: user.id,
-          expiresIn: env.JWT_EXPIRES_IN,
-        },
-      },
-    );
-
-    const maskedUser = maskUserData(user);
-
-    return reply.status(200).send({
-      token,
-      user: maskedUser
-    });
-  } catch (err) {
-    if (err instanceof InvalidCredentialsError) {
-      return reply.status(401).send({ message: err.message });
-    }
-    console.error(err);
-    return reply.status(500).send({ message: 'Internal server error.' });
+  if (!doesPasswordMatch) {
+    return reply.status(400).send({ message: 'Invalid credentials.' });
   }
+
+  const token = await reply.jwtSign(
+    {
+      userType: user.userType,
+    },
+    {
+      sign: {
+        sub: user.id,
+      },
+    },
+  );
+
+  const maskedUser = maskUserData(user);
+
+  return reply.status(200).send({
+    token,
+    user: maskedUser
+  });
 }
