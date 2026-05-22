@@ -4,6 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "clean": "node scripts/clean.js",
+    "build": "npm run clean && tsc",
+    "lint": "tsc --noEmit",
     "test": "vitest run"
   },
   "keywords": [],

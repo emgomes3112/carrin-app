@@ -3,6 +3,7 @@ import request from 'supertest';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { prisma } from '../../lib/prisma.js';
 import { OrderStatus } from '@prisma/client';
+import { env } from '../../env.js';
 
 describe('Orders and Order Items Flow', () => {
   let clientToken: string;
@@ -190,7 +191,7 @@ describe('Orders and Order Items Flow', () => {
       .post(`/orders/${createdOrderId}/accept`)
       .set('Authorization', `Bearer ${partnerToken2}`);
 
-    expect(accept2.status).toBe(400); // Invalid transition now, or 409 if we hit the concurrency lock in the same millisecond
+    expect(accept2.status).toBe(409); // OrderAlreadyAcceptedError sequential accept
   });
 
   it('should block client from adding item after accept', async () => {
@@ -202,6 +203,33 @@ describe('Orders and Order Items Flow', () => {
     expect(res.status).toBe(409); // OrderListLockedError
   });
 
+  it('should prevent unauthorized users from starting picking', async () => {
+    // Client tries to start picking
+    const resClient = await request(app.server)
+      .post(`/orders/${createdOrderId}/start-picking`)
+      .set('Authorization', `Bearer ${clientToken}`);
+    expect(resClient.status).toBe(403);
+
+    // Another partner tries to start picking
+    const resOtherPartner = await request(app.server)
+      .post(`/orders/${createdOrderId}/start-picking`)
+      .set('Authorization', `Bearer ${partnerToken2}`);
+    expect(resOtherPartner.status).toBe(403);
+  });
+
+  it('should not allow mark-paid in production environment', async () => {
+    const originalEnv = env.NODE_ENV;
+    (env as any).NODE_ENV = 'production';
+    try {
+      const res = await request(app.server)
+        .post(`/orders/${createdOrderId}/mark-paid`)
+        .set('Authorization', `Bearer ${clientToken}`);
+      expect(res.status).toBe(403);
+    } finally {
+      (env as any).NODE_ENV = originalEnv;
+    }
+  });
+
   it('should follow state machine up to completion', async () => {
     // ACCEPTED -> PICKING
     const picking = await request(app.server)
@@ -209,12 +237,26 @@ describe('Orders and Order Items Flow', () => {
       .set('Authorization', `Bearer ${partnerToken1}`);
     expect(picking.status).toBe(200);
 
-    // Update item status in PICKING
-    const updateItem = await request(app.server)
+    // 1. Update item status to FOUND without barcodeMatched and without photoUrl -> should fail (400)
+    const updateItemFail = await request(app.server)
       .patch(`/orders/${createdOrderId}/items/${createdOrderItemId}/status`)
       .set('Authorization', `Bearer ${partnerToken1}`)
       .send({ status: 'FOUND', unitPrice: 2.50 });
-    expect(updateItem.status).toBe(200);
+    expect(updateItemFail.status).toBe(400);
+
+    // 2. Update item status to FOUND with barcodeMatched false but with photoUrl -> should succeed (200)
+    const updateItemPhoto = await request(app.server)
+      .patch(`/orders/${createdOrderId}/items/${createdOrderItemId}/status`)
+      .set('Authorization', `Bearer ${partnerToken1}`)
+      .send({ status: 'FOUND', unitPrice: 2.50, barcodeMatched: false, photoUrl: 'http://example.com/photo.jpg' });
+    expect(updateItemPhoto.status).toBe(200);
+
+    // 3. Update item status to FOUND with barcodeMatched true -> should succeed without photoUrl (200)
+    const updateItemBarcode = await request(app.server)
+      .patch(`/orders/${createdOrderId}/items/${createdOrderItemId}/status`)
+      .set('Authorization', `Bearer ${partnerToken1}`)
+      .send({ status: 'FOUND', unitPrice: 2.50, barcodeMatched: true });
+    expect(updateItemBarcode.status).toBe(200);
 
     // PICKING -> WAITING_HANDOFF
     const finishPicking = await request(app.server)

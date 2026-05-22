@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { env } from '../../env.js';
 import { OrderService } from '../../services/order.service.js';
 import {
   InvalidOrderTransitionError,
@@ -92,6 +93,10 @@ export async function acceptOrder(request: FastifyRequest, reply: FastifyReply) 
 }
 
 export async function markPaid(request: FastifyRequest, reply: FastifyReply) {
+  if (env.NODE_ENV === 'production') {
+    return reply.status(403).send({ message: 'Not allowed in production environment.' });
+  }
+
   // DEV/TEST ONLY
   const paramsSchema = z.object({ id: z.string().uuid() });
   const { id } = paramsSchema.parse(request.params);
@@ -107,6 +112,10 @@ export async function markPaid(request: FastifyRequest, reply: FastifyReply) {
 }
 
 export async function startPicking(request: FastifyRequest, reply: FastifyReply) {
+  if (request.user.userType !== 'PARTNER') {
+    return reply.status(403).send({ message: 'Only partners can start picking.' });
+  }
+
   const paramsSchema = z.object({ id: z.string().uuid() });
   const { id } = paramsSchema.parse(request.params);
 

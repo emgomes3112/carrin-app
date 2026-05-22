@@ -20,3 +20,7 @@ dist/
 *.js.map
 *.d.ts
 *.d.ts.map
+
+# Keep manual declaration files
+!src/@types/**/*.d.ts
+

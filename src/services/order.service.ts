@@ -183,6 +183,10 @@ export class OrderService {
     const order = await prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new OrderNotFoundError();
 
+    if (order.status !== 'PAID_WAITING_PARTNER') {
+      throw new OrderAlreadyAcceptedError();
+    }
+
     this.validateTransition(order.status, 'ACCEPTED');
 
     // Concurrency Lock with Prisma $transaction and updateMany

@@ -103,7 +103,18 @@ export async function updateOrderItemStatus(request: FastifyRequest, reply: Fast
       return false; // MVP simplified check: requiring price when found.
     }
     return true;
-  }, { message: 'unitPrice is required when status is FOUND' });
+  }, {
+    message: 'unitPrice is required when status is FOUND',
+    path: ['unitPrice']
+  }).refine(data => {
+    if (data.status === 'FOUND' && !data.barcodeMatched && !data.photoUrl) {
+      return false;
+    }
+    return true;
+  }, {
+    message: 'photoUrl is required when item is found but barcode does not match',
+    path: ['photoUrl']
+  });
 
   const data = bodySchema.parse(request.body);
 
