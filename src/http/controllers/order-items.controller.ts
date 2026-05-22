@@ -98,20 +98,10 @@ export async function updateOrderItemStatus(request: FastifyRequest, reply: Fast
     barcodeMatched: z.boolean().optional(),
     photoUrl: z.string().url().optional(),
     notes: z.string().optional(),
-  }).refine(data => {
-    if (data.status === 'FOUND' && data.unitPrice === undefined) {
-      return false; // MVP simplified check: requiring price when found.
-    }
-    return true;
-  }, {
+  }).refine(data => !(data.status === 'FOUND' && data.unitPrice === undefined), {
     message: 'unitPrice is required when status is FOUND',
     path: ['unitPrice']
-  }).refine(data => {
-    if (data.status === 'FOUND' && !data.barcodeMatched && !data.photoUrl) {
-      return false;
-    }
-    return true;
-  }, {
+  }).refine(data => !(data.status === 'FOUND' && !data.barcodeMatched && !data.photoUrl), {
     message: 'photoUrl is required when item is found but barcode does not match',
     path: ['photoUrl']
   });

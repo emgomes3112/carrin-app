@@ -31,7 +31,7 @@ interface FeeCalculationResult {
 }
 
 export function calculateOrderFees(itemCount: number, options: { hasCheckoutAssistance: boolean; hasPackagingAssistance: boolean }): FeeCalculationResult {
-  let baseFee = 0;
+  let baseFee: number;
   if (itemCount >= 10 && itemCount <= 25) {
     baseFee = 5;
   } else if (itemCount >= 26 && itemCount <= 40) {
@@ -82,7 +82,7 @@ export class OrderService {
 
     const fees = calculateOrderFees(activeItemCount, { hasCheckoutAssistance, hasPackagingAssistance });
 
-    const order = await prisma.order.create({
+    return prisma.order.create({
       data: {
         clientId,
         supermarketId,
@@ -106,8 +106,6 @@ export class OrderService {
         items: true,
       }
     });
-
-    return order;
   }
 
   async getMyOrders(userId: string, userType: 'CLIENT' | 'PARTNER') {

@@ -1,6 +1,6 @@
 import { app } from '../../app.js';
 import request from 'supertest';
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '../../lib/prisma.js';
 import { OrderStatus } from '@prisma/client';
 import { env } from '../../env.js';
@@ -29,7 +29,7 @@ describe('Orders and Order Items Flow', () => {
     await prisma.user.deleteMany();
 
     // Create client
-    const clientRes = await request(app.server).post('/auth/register').send({
+    await request(app.server).post('/auth/register').send({
       name: 'Client Tester',
       email: 'client@test.com',
       password: 'password123',
@@ -42,7 +42,7 @@ describe('Orders and Order Items Flow', () => {
     clientId = loginClient.body.user.id;
 
     // Create Partner 1
-    const partner1Res = await request(app.server).post('/auth/register').send({
+    await request(app.server).post('/auth/register').send({
       name: 'Partner Tester 1',
       email: 'partner1@test.com',
       password: 'password123',
@@ -58,7 +58,7 @@ describe('Orders and Order Items Flow', () => {
     partnerId1 = loginPartner1.body.user.id;
 
     // Create Partner 2
-    const partner2Res = await request(app.server).post('/auth/register').send({
+    await request(app.server).post('/auth/register').send({
       name: 'Partner Tester 2',
       email: 'partner2@test.com',
       password: 'password123',
